@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ML Racing</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <header>
+    <h1>ML Racing</h1>
+    <p class="subtitle">Genetic algorithm learns to drive</p>
+  </header>
+
+  <main>
+    <div class="layout">
+
+      <!-- Track canvas -->
+      <div class="canvas-wrap">
+        <canvas id="track"></canvas>
+        <div id="mode-badge" class="mode-badge training">Training</div>
+      </div>
+
+      <!-- Side panel -->
+      <aside class="panel">
+
+        <div class="stat-group">
+          <div class="stat">
+            <span class="stat-label">Generation</span>
+            <span class="stat-value" id="stat-gen">1</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Cars alive</span>
+            <span class="stat-value" id="stat-alive">20</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Best fitness</span>
+            <span class="stat-value" id="stat-best">0.0</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Laps (best)</span>
+            <span class="stat-value" id="stat-laps">0</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Lap time</span>
+            <span class="stat-value" id="stat-laptime" style="font-size:15px">—</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Best lap</span>
+            <span class="stat-value" id="stat-bestlap" style="font-size:15px">—</span>
+          </div>
+        </div>
+
+        <!-- Generation timer bar -->
+        <div class="gen-bar-wrap">
+          <div class="gen-bar-label">Generation time</div>
+          <div class="gen-bar-track">
+            <div class="gen-bar-fill" id="gen-bar"></div>
+          </div>
+        </div>
+
+        <!-- Fitness chart -->
+        <div class="chart-wrap">
+          <p class="chart-title">Best fitness per generation</p>
+          <canvas id="chart" width="240" height="80"></canvas>
+        </div>
+
+        <!-- Controls -->
+        <div class="control-group">
+          <button id="pause-btn" class="btn primary">Pause</button>
+          <button id="watch-btn" class="btn secondary">Watch Best</button>
+          <button id="sensors-btn" class="btn secondary">Sensors</button>
+        </div>
+        <div class="control-group">
+          <button id="manual-btn" class="btn secondary full-width">Drive Manually</button>
+        </div>
+
+        <!-- Speed slider -->
+        <div class="speed-wrap">
+          <label class="speed-label">
+            Speed: <span id="speed-val">1</span>x
+          </label>
+          <input type="range" id="speed-slider" min="1" max="10" value="1">
+        </div>
+
+        <!-- Legend -->
+        <div class="legend">
+          <div class="legend-item"><span class="swatch gold"></span>Best car</div>
+          <div class="legend-item"><span class="swatch blue"></span>Training cars</div>
+          <div class="legend-item"><span class="swatch red"></span>Manual car</div>
+          <div class="legend-item"><span class="swatch green"></span>Grass (slower)</div>
+        </div>
+
+      </aside>
+    </div>
+  </main>
+
+  <script src="game.js"></script>
+  <script src="fitness.js"></script>
+
+  <script>
+    // ============================================================
+    // MAIN: wires everything together
+    // ============================================================
+
+    const canvas = document.getElementById("track");
+    canvas.width  = CANVAS_W;
+    canvas.height = CANVAS_H;
+    const ctx = canvas.getContext("2d");
+
+    const chartCanvas = document.getElementById("chart");
+    const chartCtx    = chartCanvas.getContext("2d");
+
+    // Mode flags
+    let paused      = false;
+    let watchMode   = false;
+    let manualMode  = false;
+    let showSensors = false;
+    let stepsPerFrame = 1;
+
+    // Trainer and manual car
+    const trainer   = new GeneticTrainer();
+    let manualCar   = null;
+
+    // Keyboard state
+    const keys = {};
+    document.addEventListener("keydown", e => {
+      keys[e.key] = true;
+      if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key)) {
+        e.preventDefault();
+      }
+    });
+    document.addEventListener("keyup", e => { keys[e.key] = false; });
+
+
+    // ============================================================
+    // CONTROLS
+    // ============================================================
+    document.getElementById("pause-btn").addEventListener("click", () => {
+      if (manualMode) return;
+      paused = !paused;
+      document.getElementById("pause-btn").textContent = paused ? "Resume" : "Pause";
+    });
+
+    document.getElementById("watch-btn").addEventListener("click", () => {
+      if (manualMode) return;
+      watchMode = !watchMode;
+      document.getElementById("watch-btn").textContent = watchMode ? "Stop Watching" : "Watch Best";
+      document.getElementById("watch-btn").className   = watchMode ? "btn primary" : "btn secondary";
+      setBadge(watchMode ? "watch" : "training");
+    });
+
+    document.getElementById("sensors-btn").addEventListener("click", () => {
+      showSensors = !showSensors;
+      document.getElementById("sensors-btn").className = showSensors ? "btn primary" : "btn secondary";
+    });
+
+    document.getElementById("manual-btn").addEventListener("click", () => {
+      manualMode = !manualMode;
+      watchMode  = false;
+      paused     = false;
+
+      if (manualMode) {
+        manualCar = new Car(null);
+        document.getElementById("manual-btn").textContent = "Stop Driving";
+        document.getElementById("manual-btn").className   = "btn primary full-width";
+        document.getElementById("watch-btn").className    = "btn secondary";
+        document.getElementById("watch-btn").textContent  = "Watch Best";
+        document.getElementById("pause-btn").textContent  = "Pause";
+        setBadge("manual");
+      } else {
+        manualCar = null;
+        document.getElementById("manual-btn").textContent = "Drive Manually";
+        document.getElementById("manual-btn").className   = "btn secondary full-width";
+        setBadge("training");
+      }
+    });
+
+    document.getElementById("speed-slider").addEventListener("input", e => {
+      stepsPerFrame = parseInt(e.target.value);
+      document.getElementById("speed-val").textContent = stepsPerFrame;
+    });
+
+    function setBadge(mode) {
+      const el = document.getElementById("mode-badge");
+      el.textContent = { training: "Training", watch: "Watch Best", manual: "Manual Drive" }[mode];
+      el.className   = `mode-badge ${mode}`;
+    }
+
+
+    // ============================================================
+    // MAIN LOOP
+    // ============================================================
+    function loop() {
+      if (manualMode && manualCar) {
+        for (let i = 0; i < stepsPerFrame; i++) {
+          const controls = {
+            accelerate: keys["ArrowUp"],
+            brake:      keys["ArrowDown"],
+            left:       keys["ArrowLeft"],
+            right:      keys["ArrowRight"],
+          };
+          manualCar.update(controls);
+          if (!manualCar.alive) manualCar = new Car(null);
+        }
+      } else if (!paused) {
+        for (let i = 0; i < stepsPerFrame; i++) {
+          trainer.update();
+        }
+      }
+
+      render();
+      updateUI();
+      requestAnimationFrame(loop);
+    }
+
+
+    // ============================================================
+    // RENDERING
+    // ============================================================
+    function render() {
+      drawTrack(ctx);
+
+      // Input display position: bottom-left corner of canvas
+      var inputX = 12, inputY = CANVAS_H - 12 - 22 - 3 - 22;
+
+      if (manualMode && manualCar) {
+        if (showSensors) manualCar.drawSensors(ctx);
+        manualCar.draw(ctx, "#ef4444", 1.0);
+        drawInputDisplay(ctx, manualCar.lastControls, inputX, inputY);
+        return;
+      }
+
+      if (watchMode) {
+        var watchCar = trainer.watchCar;
+        if (watchCar) {
+          if (showSensors) watchCar.drawSensors(ctx);
+          watchCar.draw(ctx, "#facc15", 1.0);
+          drawInputDisplay(ctx, watchCar.lastControls, inputX, inputY);
+        }
+        return;
+      }
+
+      // Training: draw all alive cars, highlight best
+      var best = trainer.bestCar;
+      trainer.cars.forEach(function(car) {
+        if (!car.alive || car === best) return;
+        car.draw(ctx, "#3b82f6", 0.45);
+      });
+      if (best && best.alive) {
+        if (showSensors) best.drawSensors(ctx);
+        best.draw(ctx, "#facc15", 1.0);
+        drawInputDisplay(ctx, best.lastControls, inputX, inputY);
+      }
+    }
+
+
+    // ============================================================
+    // UI UPDATES
+    // ============================================================
+    function updateUI() {
+      var activeCar = manualMode ? manualCar
+                    : watchMode  ? trainer.watchCar
+                    : trainer.bestCar;
+
+      if (manualMode) {
+        document.getElementById("stat-gen").textContent   = trainer.generation;
+        document.getElementById("stat-alive").textContent = "—";
+        document.getElementById("stat-best").textContent  = trainer.allTimeBest.toFixed(1);
+        document.getElementById("stat-laps").textContent  = manualCar ? manualCar.laps : 0;
+        document.getElementById("gen-bar").style.width    = "0%";
+      } else {
+        var best  = trainer.bestCar;
+        var pct   = (trainer.frameCount / MAX_GEN_FRAMES) * 100;
+        var alive = trainer.cars.filter(function(c) { return c.alive; }).length;
+
+        document.getElementById("stat-gen").textContent   = trainer.generation;
+        document.getElementById("stat-alive").textContent = alive;
+        document.getElementById("stat-best").textContent  = trainer.allTimeBest.toFixed(1);
+        document.getElementById("stat-laps").textContent  = best ? best.laps : 0;
+        document.getElementById("gen-bar").style.width    = Math.min(100, pct) + "%";
+      }
+
+      // Lap time from the active car
+      var lapTimeEl  = document.getElementById("stat-laptime");
+      var bestLapEl  = document.getElementById("stat-bestlap");
+      if (activeCar && activeCar.laps > 0) {
+        lapTimeEl.textContent = formatTime(activeCar.currentLapTime);
+        lapTimeEl.style.color = "";
+      } else if (activeCar && activeCar.laps === 0) {
+        lapTimeEl.textContent = formatTime(activeCar.currentLapTime);
+        lapTimeEl.style.color = "#888";
+      } else {
+        lapTimeEl.textContent = "—";
+      }
+      if (activeCar && activeCar.bestLapTime < Infinity) {
+        bestLapEl.textContent = formatTime(activeCar.bestLapTime);
+        bestLapEl.style.color = "#facc15";
+      } else {
+        bestLapEl.textContent = "—";
+      }
+
+      drawChart();
+    }
+
+    function drawChart() {
+      const data = trainer.history;
+      if (data.length < 2) return;
+
+      chartCtx.clearRect(0, 0, 240, 80);
+      const slice  = data.slice(-30);
+      const maxVal = Math.max(...slice, 1);
+
+      chartCtx.strokeStyle = "#facc15";
+      chartCtx.lineWidth   = 1.5;
+      chartCtx.beginPath();
+      slice.forEach((val, i) => {
+        const x = (i / (slice.length - 1)) * 240;
+        const y = 80 - (val / maxVal) * 72 - 4;
+        i === 0 ? chartCtx.moveTo(x, y) : chartCtx.lineTo(x, y);
+      });
+      chartCtx.stroke();
+    }
+
+
+    // ============================================================
+    // START
+    // ============================================================
+    loop();
+  </script>
+
+</body>
+</html>
