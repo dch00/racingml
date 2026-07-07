@@ -26,17 +26,17 @@ const CANVAS_H = 460;
 //   - Sweeping final corner back to start
 // ============================================================
 var CTRL_POINTS = [
-  {x: 400, y: 200},   // 0: start / finish  ← middle of top straight
-  {x: 145, y: 215},   // 1: hairpin approach
-  {x: 82,  y: 268},   // 2: hairpin apex
-  {x: 98,  y: 340},   // 3: hairpin exit
-  {x: 205, y: 392},   // 4: bottom left turn
-  {x: 350, y: 410},   // 5: bottom straight
-  {x: 470, y: 402},   // 6: chicane entry
-  {x: 562, y: 372},   // 7: chicane right
-  {x: 518, y: 308},   // 8: chicane left
-  {x: 608, y: 268},   // 9: final corner
-  {x: 620, y: 220},   // 10: top right kink
+  {x: 400, y: 200}, 
+  {x: 250, y: 115},  
+  {x: 150, y: 90},   
+  {x: 98,  y: 140},  
+  {x: 205, y: 392},  
+  {x: 350, y: 320},  
+  {x: 470, y: 402},  
+  {x: 562, y: 372},  
+  {x: 618, y: 308},  
+  {x: 700, y: 140},  
+  {x: 620, y: 100},  
 ];
 
 var TRACK_WIDTH = 66;  // visible track width in pixels
